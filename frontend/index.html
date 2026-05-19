@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Crypto-Whack</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --gold: #ffd700;
+            --gold-dark: #b8860b;
+            --bg-dark: #0f0f0f;
+            --hole-bg: #222;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-color: var(--bg-dark);
+            color: var(--gold);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #hud {
+            position: absolute;
+            top: 40px;
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            font-size: 24px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+            z-index: 5;
+        }
+        #game-container {
+            position: relative;
+            width: 320px;
+            height: 320px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 15px;
+            padding: 10px;
+            background: radial-gradient(circle, #333 0%, #0f0f0f 100%);
+            border-radius: 20px;
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
+        }
+        .hole {
+            width: 90px;
+            height: 90px;
+            background-color: var(--hole-bg);
+            border-radius: 50%;
+            position: relative;
+            overflow: hidden;
+            box-shadow: inset 0 8px 15px #000;
+            border: 2px solid #333;
+        }
+        .mole {
+            width: 75px;
+            height: 75px;
+            position: absolute;
+            left: 7.5px;
+            top: 110%;
+            transition: top 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            cursor: pointer;
+            border-radius: 50%;
+            background-image: url('img_5b80944539f5.jpg'); 
+            background-size: cover;
+            background-position: center;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
+            filter: drop-shadow(0 5px 5px rgba(0,0,0,0.5));
+        }
+        .mole.up {
+            top: 7.5px;
+        }
+        /* Hit Animation */
+        @keyframes hit-flash {
+            0% { transform: scale(1); filter: brightness(1); }
+            50% { transform: scale(1.2); filter: brightness(2) contrast(1.2); }
+            100% { transform: scale(1); filter: brightness(1); }
+        }
+        .hit {
+            animation: hit-flash 0.2s ease-out;
+        }
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            backdrop-filter: blur(5px);
+            text-align: center;
+        }
+        h1 {
+            font-size: 42px;
+            margin-bottom: 10px;
+            background: linear-gradient(to bottom, #fff 0%, var(--gold) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 5px 10px rgba(0,0,0,0.5));
+        }
+        #final-score {
+            font-size: 24px;
+            margin-bottom: 30px;
+            color: #fff;
+            font-weight: 300;
+        }
+        button {
+            padding: 18px 40px;
+            font-size: 22px;
+            background: linear-gradient(45deg, var(--gold-dark), var(--gold));
+            color: #000;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            font-weight: 900;
+            text-transform: uppercase;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3), 0 0 15px var(--gold);
+            transition: transform 0.1s active;
+        }
+        button:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="hud">
+        <div>Score: <span id="score">0</span></div>
+        <div>Time: <span id="time">30</span>s</div>
+    </div>
+
+    <div id="game-container"></div>
+
+    <div id="overlay">
+        <h1 id="title">CRYPTO WHACK</h1>
+        <p id="final-score" style="display:none"></p>
+        <button id="start-btn">START GAME</button>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        const container = document.getElementById('game-container');
+        const scoreEl = document.getElementById('score');
+        const timeEl = document.getElementById('time');
+        const startBtn = document.getElementById('start-btn');
+        const overlay = document.getElementById('overlay');
+        const finalScoreEl = document.getElementById('final-score');
+        const titleEl = document.getElementById('title');
+
+        let score = 0;
+        let timeLeft = 30;
+        let gameActive = false;
+
+        for (let i = 0; i < 9; i++) {
+            const hole = document.createElement('div');
+            hole.className = 'hole';
+            const mole = document.createElement('div');
+            mole.className = 'mole';
+            mole.dataset.index = i;
+            mole.onclick = (e) => whack(e, mole);
+            hole.appendChild(mole);
+            container.appendChild(hole);
+        }
+
+        const moles = document.querySelectorAll('.mole');
+
+        function whack(e, mole) {
+            if (!gameActive || !mole.classList.contains('up')) return;
+            
+            e.stopPropagation();
+            score += 10;
+            scoreEl.innerText = score;
+            
+            // Animation and feedback
+            mole.classList.add('hit');
+            setTimeout(() => mole.classList.remove('hit'), 200);
+            
+            mole.classList.remove('up');
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('heavy');
+            
+            spawnMole();
+        }
+
+        function spawnMole() {
+            if (!gameActive) return;
+            
+            moles.forEach(m => m.classList.remove('up'));
+            
+            const randomIndex = Math.floor(Math.random() * 9);
+            const mole = moles[randomIndex];
+            mole.classList.add('up');
+            
+            const timeout = Math.max(600, 1400 - (score * 4)); 
+            setTimeout(() => {
+                if (mole.classList.contains('up')) {
+                    mole.classList.remove('up');
+                    spawnMole();
+                }
+            }, timeout);
+        }
+
+        function startGame() {
+            score = 0;
+            timeLeft = 30;
+            gameActive = true;
+            scoreEl.innerText = score;
+            timeEl.innerText = timeLeft;
+            overlay.style.display = 'none';
+            
+            const countdown = setInterval(() => {
+                timeLeft--;
+                timeEl.innerText = timeLeft;
+                if (timeLeft <= 0) {
+                    clearInterval(countdown);
+                    endGame();
+                }
+            }, 1000);
+            
+            spawnMole();
+        }
+
+        async function endGame() {
+            gameActive = false;
+            titleEl.innerText = "TIME'S UP!";
+            finalScoreEl.innerText = "Final Score: " + score;
+            finalScoreEl.style.display = 'block';
+            startBtn.innerText = "PLAY AGAIN";
+            overlay.style.display = 'flex';
+            
+            try {
+                await fetch('/update_score', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        user_id: tg.initDataUnsafe?.user?.id || 0,
+                        username: tg.initDataUnsafe?.user?.first_name || 'Anonymous',
+                        score: score
+                    })
+                });
+            } catch (e) {
+                console.error("Score sync failed");
+            }
+        }
+
+        startBtn.onclick = startGame;
+    </script>
+</body>
+</html>
